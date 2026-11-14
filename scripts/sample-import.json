@@ -1,0 +1,25 @@
+{
+  "lawyers": [
+    {
+      "registryNumber": "77/99991",
+      "fullName": "Тестов Тест Тестович",
+      "lastName": "Тестов",
+      "firstName": "Тест",
+      "middleName": "Тестович",
+      "citySlug": "moscow",
+      "registryStatus": "ACTIVE",
+      "experienceStartYear": 2012
+    }
+  ],
+  "cases": [
+    {
+      "externalUid": "gas-demo-001",
+      "caseNumber": "2-9991/2026",
+      "title": "Защита по ст. 159 УК РФ (демо импорта)",
+      "lawyerRegistryNumber": "77/99991",
+      "lawArticles": ["ст. 159 УК РФ"],
+      "outcome": "WIN",
+      "summary": "Импортированное демо-дело для проверки идемпотентности парсера."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: portal_advokatov_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: portal_local_dev
+      POSTGRES_DB: portal_advokatov
+    volumes:
+      - portal_pg_data:/var/lib/postgresql/data
+
+volumes:
+  portal_pg_data:

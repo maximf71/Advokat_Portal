@@ -1,0 +1,66 @@
+{
+  "name": "portal-advokatov",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
+    "parse:minjust": "tsx scripts/parsers/fetch-lawyers.ts",
+    "parse:paso": "tsx scripts/parsers/fetch-lawyers.ts --skip-fetch",
+    "parse:cases": "tsx scripts/parsers/fetch-cases-tolyatti.ts",
+    "reparse:kad": "tsx scripts/parsers/reparse-kad-cases.ts",
+    "reparse:gas": "tsx scripts/parsers/reparse-gas-cases.ts",
+    "fix:case-slugs": "tsx scripts/fix-case-slugs.ts",
+    "ensure:courts": "tsx scripts/parsers/ensure-courts.ts",
+    "prepare:registry": "tsx scripts/prepare-registry-import.ts",
+    "import:parsed": "tsx scripts/import-parsed-data.ts",
+    "rating:recalc": "tsx scripts/recalc-ratings.ts",
+    "pg:start": "powershell -ExecutionPolicy Bypass -File scripts/pg-start.ps1",
+    "pg:stop": "powershell -ExecutionPolicy Bypass -File scripts/pg-stop.ps1"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "lucide-react": "^0.469.0",
+    "next": "15.5.28",
+    "next-auth": "^5.0.0-beta.25",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.28",
+    "playwright": "^1.64.1",
+    "prisma": "5.22.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "prisma@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "esbuild@0.28.2": true
+  }
+}

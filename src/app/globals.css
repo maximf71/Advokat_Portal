@@ -1,0 +1,65 @@
+/* Bunny Fonts first (must precede other rules after Tailwind expands) */
+@import url("https://fonts.bunny.net/css?family=golos-text:400,500,600,700|jetbrains-mono:400,500|pt-serif:400,700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --background: #f9f8f6;
+  --foreground: #14171a;
+  --paper: #f9f8f6;
+  --surface: #ffffff;
+  --ink: #14171a;
+  --muted-ink: #5a6065;
+  --rule: #e2e0d8;
+  --navy: #1b365d;
+  --bronze: #8c6d46;
+  --registry-green: #1e5631;
+  --font-sans: "Golos Text", system-ui, sans-serif;
+  --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted-ink: var(--muted-ink);
+  --color-rule: var(--rule);
+  --color-navy: var(--navy);
+  --color-bronze: var(--bronze);
+  --color-registry-green: var(--registry-green);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+.section-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-ink);
+}
+
+.swiss-border {
+  border: 1px solid var(--rule);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

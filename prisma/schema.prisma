@@ -1,0 +1,463 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==========================================
+// 1. ПЕРЕЧИСЛЕНИЯ (ENUMS)
+// ==========================================
+
+enum UserRole {
+  LAWYER
+  MODERATOR
+  ADMIN
+}
+
+enum RegistryStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+  UNKNOWN
+}
+
+enum LawFirmForm {
+  COLLEGIA
+  BUREAU
+  CABINET
+  LEGAL_COMPANY
+}
+
+enum CourtType {
+  ARBITRATION
+  GENERAL
+  MAGISTRATE
+  SUPREME
+}
+
+enum CaseOutcome {
+  WIN
+  PARTIAL
+  LOSS
+  SETTLEMENT
+  IN_PROGRESS
+  UNKNOWN
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeadStatus {
+  NEW
+  SENT_TO_LAWYER
+  SOLD_TO_PARTNER
+  IN_WORK
+  CLOSED
+  SPAM
+}
+
+// ==========================================
+// 2. ПОЛЬЗОВАТЕЛИ И АВТОРИЗАЦИЯ
+// ==========================================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String?
+  role         UserRole @default(LAWYER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  lawyerProfile Lawyer?
+  claimRequests ClaimRequest[]
+}
+
+// ==========================================
+// 3. ГЕОГРАФИЯ И СЕО-СПРАВОЧНИКИ
+// ==========================================
+
+model City {
+  id                String  @id @default(uuid())
+  slug              String  @unique
+  name              String
+  nameGenitive      String
+  namePrepositional String
+  nameDative        String?
+  regionName        String
+  regionCode        String?
+  population        Int     @default(0)
+  isMajor           Boolean @default(false)
+  latitude          Float?
+  longitude         Float?
+
+  activeLawyersCount Int @default(0)
+
+  lawyers  Lawyer[]
+  lawFirms LawFirm[]
+  courts   Court[]
+  questions Question[]
+  leads    Lead[]
+
+  @@index([slug])
+  @@index([isMajor, population(sort: Desc)])
+}
+
+model Category {
+  id                String  @id @default(uuid())
+  slug              String  @unique
+  name              String
+  lawyerTitlePlural String
+  lawyerTitleSingle String
+  description       String? @db.Text
+  sortOrder         Int     @default(0)
+
+  services        Service[]
+  specializations LawyerSpecialization[]
+  courtCases      CourtCase[]
+  questions       Question[]
+  leads           Lead[]
+
+  @@index([slug])
+}
+
+model Service {
+  id             String   @id @default(uuid())
+  slug           String
+  categoryId     String
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name           String
+  shortTag       String
+  lawArticleCode String?
+  avgMarketPrice Int?
+
+  specializations LawyerServicePrice[]
+  courtCases      CourtCase[]
+  leads           Lead[]
+
+  @@unique([categoryId, slug])
+  @@index([lawArticleCode])
+}
+
+// ==========================================
+// 4. РЕЕСТРОВОЕ ЯДРО
+// ==========================================
+
+model AdvocateChamber {
+  id         String  @id @default(uuid())
+  slug       String  @unique
+  name       String
+  regionCode String  @unique
+  address    String?
+  website    String?
+
+  lawyers  Lawyer[]
+  lawFirms LawFirm[]
+}
+
+model LawFirm {
+  id        String      @id @default(uuid())
+  slug      String      @unique
+  name      String
+  form      LawFirmForm @default(COLLEGIA)
+  inn       String?     @unique
+  ogrn      String?
+  address   String?
+  phone     String?
+  website   String?
+
+  cityId    String
+  city      City             @relation(fields: [cityId], references: [id])
+  chamberId String?
+  chamber   AdvocateChamber? @relation(fields: [chamberId], references: [id])
+
+  lawyers Lawyer[]
+
+  @@index([cityId])
+  @@index([slug])
+}
+
+// ==========================================
+// 5. ПРОФИЛЬ АДВОКАТА И РЕЙТИНГ
+// ==========================================
+
+model Lawyer {
+  id                  String         @id @default(uuid())
+  slug                String         @unique
+
+  fullName            String
+  lastName            String
+  firstName           String
+  middleName          String?
+  initialsSearch      String
+
+  /// Stable id from Minjust EGRA registry row
+  externalId          String?        @unique
+  registryNumber      String?        @unique
+  registryStatus      RegistryStatus @default(ACTIVE)
+  statusUpdatedAt     DateTime?
+  identityCardNumber  String?
+
+  isClaimed           Boolean  @default(false)
+  isVerifiedDocuments Boolean  @default(false)
+  claimedAt           DateTime?
+  userId              String?  @unique
+  user                User?    @relation(fields: [userId], references: [id])
+
+  cityId    String
+  city      City             @relation(fields: [cityId], references: [id])
+  chamberId String?
+  chamber   AdvocateChamber? @relation(fields: [chamberId], references: [id])
+  lawFirmId String?
+  lawFirm   LawFirm?         @relation(fields: [lawFirmId], references: [id])
+
+  photoUrl             String?
+  bio                  String? @db.Text
+  education            String?
+  experienceStartYear  Int?
+  officeAddress        String?
+  worksOnline          Boolean @default(false)
+  worksRegions         Boolean @default(false)
+  minConsultationPrice Int?
+  freeFirstCheck       Boolean @default(false)
+
+  publicPhone      String?
+  telegramUsername String?
+  whatsappPhone    String?
+
+  totalRating       Float   @default(5.0)
+  practiceScore     Float   @default(2.5)
+  statusAndExpScore Float   @default(1.5)
+  reputationScore   Float   @default(1.0)
+  isPromoted        Boolean @default(false)
+
+  casesCount    Int @default(0)
+  wonCasesCount Int @default(0)
+  reviewsCount  Int @default(0)
+  answersCount  Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  specializations LawyerSpecialization[]
+  servicePrices   LawyerServicePrice[]
+  courtCases      CourtCase[]
+  reviews         Review[]
+  answers         Answer[]
+  leads           Lead[]
+  claimRequests   ClaimRequest[]
+
+  @@index([cityId, isPromoted(sort: Desc), totalRating(sort: Desc), casesCount(sort: Desc)])
+  @@index([lastName, firstName])
+  @@index([initialsSearch, cityId])
+  @@index([registryNumber])
+  @@index([externalId])
+}
+
+model LawyerSpecialization {
+  id              String   @id @default(uuid())
+  lawyerId        String
+  lawyer          Lawyer   @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  categoryId      String
+  category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  casesInCategory Int     @default(0)
+  isPrimary       Boolean @default(false)
+
+  @@unique([lawyerId, categoryId])
+  @@index([categoryId, casesInCategory(sort: Desc)])
+}
+
+model LawyerServicePrice {
+  id           String  @id @default(uuid())
+  lawyerId     String
+  lawyer       Lawyer  @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  serviceId    String
+  service      Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  priceFrom    Int
+  priceComment String?
+
+  @@unique([lawyerId, serviceId])
+}
+
+// ==========================================
+// 6. СУДЫ И СУДЕБНЫЕ ДЕЛА
+// ==========================================
+
+model Court {
+  id        String    @id @default(uuid())
+  slug      String    @unique
+  courtCode String?   @unique
+  name      String
+  courtType CourtType @default(GENERAL)
+  address   String?
+  website   String?
+
+  cityId String
+  city   City        @relation(fields: [cityId], references: [id])
+  cases  CourtCase[]
+
+  @@index([cityId])
+}
+
+model CourtCase {
+  id                 String      @id @default(uuid())
+  slug               String      @unique
+
+  externalUid        String?     @unique
+  caseNumber         String
+
+  title              String
+  summary            String?     @db.Text
+  rawTextExcerpt     String?     @db.Text
+  lawArticles        String[]
+
+  decisionDate       DateTime?
+  outcome            CaseOutcome @default(UNKNOWN)
+  claimAmount        BigInt?
+  sourceUrl          String?
+  pdfDocumentUrl     String?
+
+  isVerifiedByLawyer Boolean @default(false)
+  isHiddenByLawyer   Boolean @default(false)
+
+  lawyerId   String
+  lawyer     Lawyer    @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  courtId    String?
+  court      Court?    @relation(fields: [courtId], references: [id])
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+  serviceId  String?
+  service    Service?  @relation(fields: [serviceId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([lawyerId, isHiddenByLawyer, decisionDate(sort: Desc)])
+  @@index([courtId])
+  @@index([categoryId])
+  @@index([caseNumber])
+}
+
+// ==========================================
+// 7. МЕХАНИКА "ЗАБРАТЬ ПРОФИЛЬ"
+// ==========================================
+
+model ClaimRequest {
+  id               String             @id @default(uuid())
+  lawyerId         String
+  lawyer           Lawyer             @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  userId           String?
+  user             User?              @relation(fields: [userId], references: [id])
+
+  applicantName    String
+  workEmail        String
+  workPhone        String
+  idCardScanUrl    String
+  comment          String?
+
+  status           VerificationStatus @default(PENDING)
+  moderatorComment String?
+  createdAt        DateTime           @default(now())
+  processedAt      DateTime?
+
+  @@index([status, createdAt(sort: Desc)])
+}
+
+// ==========================================
+// 8. UGC: ВОПРОС-ОТВЕТ, ОТЗЫВЫ И ЛИДЫ
+// ==========================================
+
+model Question {
+  id          String  @id @default(uuid())
+  slug        String  @unique
+  title       String
+  body        String  @db.Text
+  authorName  String  @default("Анонимно")
+  authorPhone String?
+
+  cityId     String?
+  city       City?     @relation(fields: [cityId], references: [id])
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  viewsCount  Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  answers Answer[]
+
+  @@index([categoryId, createdAt(sort: Desc)])
+  @@index([cityId])
+}
+
+model Answer {
+  id           String   @id @default(uuid())
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  lawyerId     String
+  lawyer       Lawyer   @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+
+  body         String   @db.Text
+  isBestAnswer Boolean  @default(false)
+  likesCount   Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([questionId])
+  @@index([lawyerId])
+}
+
+model Review {
+  id                 String             @id @default(uuid())
+  lawyerId           String
+  lawyer             Lawyer             @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+
+  authorName         String
+  authorPhone        String
+  rating             Int
+  pros               String?            @db.Text
+  cons               String?            @db.Text
+  comment            String             @db.Text
+
+  verifiedCaseNumber String?
+  isVerifiedClient   Boolean            @default(false)
+  status             VerificationStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([lawyerId, status, createdAt(sort: Desc)])
+}
+
+model Lead {
+  id          String  @id @default(uuid())
+  clientName  String
+  clientPhone String
+  problemText String  @db.Text
+  sourceUrl   String?
+
+  lawyerId   String?
+  lawyer     Lawyer?   @relation(fields: [lawyerId], references: [id])
+  cityId     String?
+  city       City?     @relation(fields: [cityId], references: [id])
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+  serviceId  String?
+  service    Service?  @relation(fields: [serviceId], references: [id])
+
+  status    LeadStatus @default(NEW)
+  createdAt DateTime   @default(now())
+
+  @@index([lawyerId, status])
+  @@index([cityId, categoryId, status])
+}

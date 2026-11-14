@@ -1,0 +1,68 @@
+# Portal Advokatov — production compose (no domain)
+#
+# NOTE: On the current small VPS (~1 GB RAM / ~10 GB disk) prefer
+# deploy/scripts/remote-deploy-pm2.sh instead — Docker build OOMs easily.
+# Keep this file for larger hosts.
+#
+# VPN SAFETY (hard rules):
+# - Do NOT touch UDP 443 (Hysteria2 / xray)
+# - Do NOT reinstall/restart/reconfigure 3x-ui / xray / hysteria
+# - Do NOT bind anything to UDP 443
+# - Avoid colliding with TCP 2096/2097 (x-ui panel / sub)
+# - Postgres is internal-only (no host port publish)
+# - App binds ONLY to 127.0.0.1:3000; Nginx proxies TCP 80 + 8080
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: portal_advokatov_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-portal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: ${POSTGRES_DB:-portal_advokatov}
+    volumes:
+      - portal_pg_data:/var/lib/postgresql/data
+    # Intentionally NO ports: section — DB stays on the Docker network only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portal} -d ${POSTGRES_DB:-portal_advokatov}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - portal_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portal_advokatov_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-portal}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-portal_advokatov}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-portal}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-portal_advokatov}?schema=public
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    # Host bind loopback only — Nginx reaches it; VPN ports untouched
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - portal_net
+
+volumes:
+  portal_pg_data:
+
+networks:
+  portal_net:
+    driver: bridge

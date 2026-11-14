@@ -1,0 +1,706 @@
+Для разработки крупного агрегатора в Cursor главное правило — не просить ИИ «сделать весь сайт сразу», а зафиксировать жёсткие архитектурные и визуальные ограничения в системных правилах проекта (.cursor/rules), описать единую схему базы данных и двигаться изолированными этапами. Если Cursor видит чёткую типизацию и дизайн-токены, вы сможете в будущем переверстать весь визуал за пару вечеров, не затронув ни одного SEO-адреса и ни одной таблицы в базе.1. Оптимальный стек под Cursor, SEO и будущий редизайнCursor лучше всего пишет код на современном строго типизированном стеке, где структура данных и вёрстка жёстко разделены:Фреймворк: Next.js (App Router) + TypeScript — обеспечивает серверный рендеринг (SSR/ISR) для мгновенной индексации Яндексом и Google, а TypeScript не даёт нейросети «ломать» соседние файлы при доработках.База данных и ORM: PostgreSQL + Prisma ORM (на базе Supabase). Вся структура вашей базы будет храниться в одном файле prisma/schema.prisma. Когда вы передаёте этот файл в контекст Cursor (@schema.prisma), он безошибочно пишет сложные запросы (фильтрация по городам, подсчёт дел, рейтинг). Supabase сразу закроет вопрос авторизации юристов и хранения файлов (сканы удостоверений, аватарки, PDF решений судов).Стилизация и UI: Tailwind CSS + shadcn/ui. Компоненты shadcn/ui лежат прямо в вашей папке components/ui/. Чтобы позже сменить дизайн, вам достаточно будет поменять переменные в одном файле globals.css и шаблоны компонентов — логика данных останется нетронутой.2. Шаг №0: Настройка «мозгов» Cursor (.cursorrules)Перед написанием первой строчки кода создайте в корне проекта файл .cursorrules (или файл .cursor/rules/architecture-and-design.mdc). Он навсегда запретит нейросети генерировать шаблонный «ИИ-дизайн» и нарушать SEO-структуру.Скопируйте и вставьте этот блок в ваш .cursorrules:Markdown# Role & Project Context
+Ты — Senior Full-Stack Архитектор и арт-директор строгих редакционных изданий. Мы разрабатываем всероссийский юридический портал-агрегатор адвокатов с личными кабинетами, парсингом судебных дел и Programmatic SEO.
+
+# Tech Stack Rules
+- Next.js 15 (App Router), TypeScript (strict), Tailwind CSS, shadcn/ui, Prisma ORM + PostgreSQL (Supabase).
+- Все публичные страницы каталога, профилей, судов и кейсов ОБЯЗАНЫ быть React Server Components (SSR/ISR) и отдавать готовый HTML в исходном коде.
+- Клиентские компоненты (`"use client"`) разрешены ТОЛЬКО для интерактивных элементов: фильтров, калькуляторов, форм заявок и личного кабинета (`/dashboard`).
+
+# Strict SEO Requirements
+1. Неизменяемая плоская структура URL:
+   - Город: `/[city]`
+   - Город + Категория: `/[city]/[category]`
+   - Город + Категория + Узкая услуга: `/[city]/[category]/[service]`
+   - Профиль адвоката (БЕЗ привязки к городу в URL): `/lawyers/[slug]`
+   - Коллегия/бюро: `/firms/[slug]`
+   - Суд: `/courts/[slug]`
+   - Судебный кейс: `/cases/[slug]`
+   - Вопрос-ответ: `/questions/[slug]`
+2. Каждая публичная страница обязана экспортировать `generateMetadata()` с динамическими `title`, `description`, `alternates.canonical` и JSON-LD микроразметкой (`Schema.org`: `Attorney`, `LegalService`, `AggregateRating`, `FAQPage`).
+3. Защита от Thin Content: если на пересечении `/[city]/[category]` в базе `0` активных юристов, в `generateMetadata` автоматически выставляется `robots: { index: false, follow: true }`.
+
+# Anti-AI Design System (Swiss Legal / Editorial Style)
+Категорически ЗАПРЕЩЕНО использовать:
+- Фиолетовые, неоновые и сине-розовые градиенты (`bg-gradient-to-*`).
+- Крупные скругления (`rounded-xl`, `rounded-2xl`, `rounded-full` для карточек и кнопок).
+- Размытые цветные тени (`shadow-lg`, `shadow-xl`, `backdrop-blur`).
+- Центрированные промо-блоки с абстрактными иконками.
+
+ОБЯЗАТЕЛЬНЫЙ визуальный стиль (Классический юридический минимализм, ориентиры: Financial Times, Коммерсантъ, Pravo.ru):
+- Сетка: Видимые тонкие разделительные линии `1px solid #E5E4DF` (Swiss Grid).
+- Скругления: Строгие прямые углы `rounded-none` (0px) или микро-скругление `rounded-sm` (2px).
+- Палитра:
+  - Основной фон (бумага): `#F9F8F6`
+  - Фон карточек и таблиц: `#FFFFFF`
+  - Основной текст и заголовки (глубокий графит): `#14171A`
+  - Вторичный текст: `#5A6065`
+  - Акцентный цвет (строгий темно-синий Navy): `#1B365D`
+  - Вторичный акцент (статусная бронза / бордо для рейтингов и реестра): `#8C6D46`
+  - Статус "Минюст РФ: Действующий": `#1E5631` (глубокий сдержанный зеленый)
+- Типографика:
+  - Заголовки (`H1`–`H3`, цифры статистики): антиква с засечками (`font-serif` — PT Serif или Cormorant Garamond).
+  - Наборный текст, таблицы, интерфейс: строгий гротеск (`font-sans` — Golos Text или Inter), цифры в таблицах строго моноширинные (`tabular-nums`).
+3. Архитектура папок проекта (Изоляция логики от дизайна)Попросите Cursor создать следующую файловую структуру. Благодаря группам роутов в скобках (public) и (dashboard), название папки не попадает в URL, но код публичного SEO-портала и закрытого личного кабинета полностью разделён:Plaintextsrc/
+├── app/
+│   ├── (public)/                        # Публичный SEO-контур (SSR, индексируется)
+│   │   ├── page.tsx                     # Главная портала (поиск, стат. по РФ, топ городов)
+│   │   ├── lawyers/[slug]/page.tsx      # Профиль адвоката (дела, рейтинг, кнопка Claim)
+│   │   ├── firms/[slug]/page.tsx        # Страница коллегии / адвокатского бюро
+│   │   ├── courts/[slug]/page.tsx       # Страница суда + топ практикующих там юристов
+│   │   ├── cases/[slug]/page.tsx        # Страница конкретного судебного дела
+│   │   ├── questions/[slug]/page.tsx    # Лента и страницы «Вопрос-Ответ»
+│   │   ├── calculators/[slug]/page.tsx  # Юридические калькуляторы (госпошлина, ДДУ)
+│   │   └── [city]/                      # Динамический гео-маршрутизатор
+│   │       ├── page.tsx                 # Все юристы города (/ekaterinburg/)
+│   │       └── [category]/
+│   │           ├── page.tsx             # Отрасль в городе (/ekaterinburg/ugolovnoe-pravo/)
+│   │           └── [service]/page.tsx   # Узкая услуга (/ekaterinburg/ugolovnoe-pravo/st-159-uk-rf/)
+│   │
+│   ├── (dashboard)/                     # Закрытый контур (noindex в robots.txt)
+│   │   ├── dashboard/                   # Личный кабинет адвоката (профиль, дела, ответы, лиды)
+│   │   ├── claim/[lawyerId]/page.tsx    # Страница подтверждения («Это мой профиль»)
+│   │   └── admin/                       # Админка модерации и загрузки спарсенных баз
+│   │
+│   └── api/                             # API-эндпоинты (отправка лидов, импорт парсера)
+│
+├── components/
+│   ├── ui/                              # Базовые атомы (кнопки, инпуты, таблицы) — меняются при редизайне
+│   ├── seo/                             # Генераторы JSON-LD микроразметки и хлебных крошек
+│   └── domain/                          # Бизнес-компоненты (LawyerCard, CaseRow, RatingBadge)
+│
+├── lib/
+│   ├── db/                              # Запросы к базе (getLawyersByCity, getLawyerProfile)
+│   ├── rating/                          # Формула расчёта рейтинга (отдельно от верстки!)
+│   └── seo/                             # Шаблоны Title, H1, Description и проверка Thin Content
+└── prisma/
+    └── schema.prisma                    # Единый источник правды по структуре БД
+Почему это спасёт вас при будущем редизайне: все тексты, метатеги и выборки из базы живут в папке src/lib/. Когда у вас появится дорогой дизайн-макет, вы будете менять файлы только внутри src/components/, вообще не прикасаясь к папке src/lib/ и структуре src/app/.4. Архитектура базы данных (Под парсинг и SEO)В файл prisma/schema.prisma сразу заложите поля как для спарсенных данных, так и для веренных профилей:Таблица (Модель)Ключевые поляНазначение для бизнеса и SEOCityid, name, namePrepositional (в Казани), nameGenitive (Казани), slug, populationСклонения городов нужны для автоматической генерации грамотных русских Title и H1 без участия копирайтеров.Category & Serviceid, title, slug, parentId, lawArticle (напр., ст. 228 УК РФ)Двухуровневый справочник: Отрасль права → Конкретная жизненная проблема или статья кодекса.Lawyerid, slug, fullName, registryNumber (номер Минюста), registryStatus (ACTIVE / SUSPENDED), chamberRegion, isClaimed (boolean), userId (связь с ЛК), experienceYears, bio, calculatedRating, casesCountПоле isClaimed: false означает, что профиль спарсен. Пока он false, отображается плашка «Это вы? Подтвердите профиль», а заявки клиентов идут вам в админку.LawFirmid, slug, name, form (Коллегия / Бюро / Кабинет), inn, address, cityIdГруппирует спарсенных адвокатов по организациям, создавая сотни дополнительных SEO-страниц.Courtid, slug, name, cityId, courtType (Арбитражный / Районный)Справочник судов РФ. На странице суда выводятся юристы с наибольшим числом дел в этом суде.CourtCaseid, slug, caseNumber (номер дела в ГАС/МойАрбитр), courtId, lawyerId, categoryId, outcome (WIN / PARTIAL / LOSS), summary, decisionDate, sourceUrlБаза спарсенных и добавленных вручную судебных актов. Формирует объективный рейтинг и даёт НЧ-трафик.VerificationRequestid, lawyerId, userEmail, phone, documentScanUrl, status (PENDING / APPROVED)Заявки от реальных адвокатов на получение доступа к своему спарсенному профилю.Question & Answerid, slug, title, body, cityId, categoryId, lawyerId (автор ответа)Раздел «Вопрос-Ответ». Каждый ответ юриста автоматически повышает его calculatedRating и ссылается на его профиль.5. Пошаговый план разработки в Cursor (6 спринтов)Не переходите к следующему этапу, пока полностью не проверите предыдущий в браузере.Этап 1. Фундамент данных и скрипт наполнения (День 1–2)Инициализируйте проект Next.js и положите файл .cursorrules в корень.В режиме Cursor Composer / Agent дайте задачу:«Создай prisma/schema.prisma для нашего юридического агрегатора со всеми таблицами: City (со склонениями падежей), Category, Service, Lawyer (с полями реестра Минюста и флагом isClaimed), LawFirm, Court, CourtCase, Question, Answer, Review, Lead. Добавь индексы по slug и внешним ключам».Попросите Cursor написать скрипт prisma/seed.ts, который заполнит базу реалистичными тестовыми данными: 5 городов РФ, 10 специализаций, 30 адвокатов (половина со статусом isClaimed: false, половина — true), 5 судов и 50 судебных дел с реальными номерами статей УК/ГК/АПК РФ.Этап 2. Изолированный UI-Kit в строгом юридическом стиле (День 3–4)Прежде чем собирать страницы, заставьте Cursor сделать одну тестовую страницу /ui-kit, где будут лежать все визуальные блоки. Так вы отшлифуете «не-нейросетевой» вид на старте:Настройте в layout.tsx подключение шрифтов Google Fonts: PT Serif (заголовки) и Golos Text (основной текст).Попросите Cursor сверстать на /ui-kit 5 главных компонентов в соответствии с .cursorrules:LawyerCard: Строгая прямоугольная карточка с тонкой рамкой 1px solid #E5E4DF, фото (или строгой монограммой ФИО, если профиль спарсен и без фото), зелёным бейджем «Реестр Минюста № 77/12345», счётчиком судебных дел моноширинным шрифтом и рейтингом.UnclaimedBanner: Информационный блок в стиле официального уведомления: «Профиль сформирован по открытым данным Минюста и ГАС "Правосудие". Вы являетесь этим адвокатом? Подтвердить профиль →».CourtCaseRow: Строка таблицы судебного дела с номером дела, названием суда, статьёй закона и бейджем исхода дела.RatingBreakdown: Визуальная шкала из 3 составляющих рейтинга: Судебная практика (0–5 баллов) + Стаж и статус (0–3 балла) + Отзывы и активность (0–2 балла).Этап 3. Публичное SEO-ядро и карточка адвоката (День 5–8)Страница профиля (/lawyers/[slug]): Сборка полного досье адвоката (шапка с реестровым номером, вкладки «Судебные дела в базах», «Специализация и суды», «Прайс-лист», «Ответы на вопросы»). Внедрение микроразметки Schema.org/Attorney.Гео-категории (/[city]/[category] и /[city]/[category]/[service]):Верхний аналитический блок с динамическими цифрами из БД («Найдено 42 адвоката в Казани, проанализировано 1 280 судебных актов»).Быстрые теги перелинковки на узкие статьи и проблемы над списком.Сортировка списка: сначала верифицированные с высоким рейтингом и числом дел по данной категории, ниже — спарсенные анкеты.Блок FAQ внизу страницы с автоматической подстановкой статистики города.Страницы судов (/courts/[slug]) и кейсов (/cases/[slug]): Автоматический вывод топ-адвокатов, чьи дела привязаны к данному суду.Этап 4. Формула объективного рейтинга и импорт парсера (День 9–10)Создайте сервис src/lib/rating/calculator.ts, который автоматически пересчитывает рейтинг каждого адвоката в базе:Для спарсенных анкет (без участия юриста): Базовый рейтинг строится по логарифмической формуле от количества найденных судебных дел + активного статуса в реестре Минюста + разнообразия категорий дел. Даже у нового спарсенного профиля уже будет объективный индекс (например, 6.8 из 10 на базе 43 судебных дел).Мотивация зайти в ЛК: Максимальный рейтинг (до 10.0) можно получить только после верификации профиля (+1.0 балл), заполнения цен и образования (+0.5 балла), публикации подробных разборов дел и ответов клиентам в разделе «Вопрос-Ответ».Создайте защищённый API-роут или CLI-скрипт scripts/import-parsed-data.ts, который принимает JSON/CSV файлы вашего парсера, проверяет дубликаты по реестровому номеру Минюста (registryNumber) и создаёт/обновляет профили и судебные дела.Этап 5. Механика «Забрать профиль» и Личный кабинет (День 11–14)Поток верификации (/claim/[lawyerId]): Адвокат нажимает «Это мой профиль», вводит рабочий телефон/email, прикрепляет фото удостоверения. В админке появляется заявка. После вашего клика «Одобрить» флаг isClaimed меняется на true, и профиль привязывается к аккаунту юриста.Личный кабинет (/dashboard):Мои судебные дела: юрист видит дела, которые вы спарсили автоматически, может скрыть ошибочные однофамильцев или добавить описание («Суть спора и результат») к любому делу, а также добавить новые дела.Лента вопросов клиентов: список новых вопросов из его города, где он может дать ответ и получить бесплатный лид.Заявки (Лиды): таблица обращений клиентов со страницы его профиля.Этап 6. Трафик-магниты и техническая SEO-полировка (День 15–17)Сгенерируйте в Cursor 3 калькулятора на отдельных страницах (/calculators/gosposhlina, /calculators/neustojka-ddu, /calculators/alimenty) с автоматической подгрузкой 3 лучших адвокатов города пользователя под результатом расчёта.Настройте динамическую генерацию sitemap.xml (разбитую на sitemap-cities.xml, sitemap-lawyers.xml, sitemap-cases.xml), куда попадают только непустые страницы.Проверьте через curl или просмотр исходного кода страницы (Ctrl+U), что весь текст карточек юристов, их дела и метатеги отдаются сервером сразу в HTML.
+
+Готовый код файла prisma/schema.prisma спроектирован специально под задачи вашего портала: он объединяет структуру для Programmatic SEO (склонения городов, категории, узкие услуги), парсинг открытых баз (уникальные ключи для защиты от дублей из Минюста и ГАС «Правосудие»), денормализованные счётчики рейтинга (чтобы страницы каталога открывались быстрее 50 мс без тяжёлых SQL-подсчётов) и механику захвата профилей (Claim Profile).
+
+Скопируйте этот код и вставьте его в файл prisma/schema.prisma в вашем проекте:
+
+Code snippet
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // Используется для миграций в Supabase
+}
+
+// ==========================================
+// 1. ПЕРЕЧИСЛЕНИЯ (ENUMS)
+// ==========================================
+
+enum UserRole {
+  LAWYER    // Верифицированный юрист/адвокат
+  MODERATOR // Модератор заявок и отзывов
+  ADMIN     // Владелец портала
+}
+
+enum RegistryStatus {
+  ACTIVE     // Действующий статус в реестре Минюста
+  SUSPENDED  // Статус приостановлен
+  TERMINATED // Статус прекращен
+  UNKNOWN    // Юрист без статуса адвоката / не найден
+}
+
+enum LawFirmForm {
+  COLLEGIA      // Коллегия адвокатов
+  BUREAU        // Адвокатское бюро
+  CABINET       // Адвокатский кабинет
+  LEGAL_COMPANY // ООО / Юридическая компания
+}
+
+enum CourtType {
+  ARBITRATION // Арбитражный суд
+  GENERAL     // Суд общей юрисдикции (районный, городской, областной)
+  MAGISTRATE  // Мировой судебный участок
+  SUPREME     // Верховный / Кассационный / Апелляционный суд
+}
+
+enum CaseOutcome {
+  WIN         // Иск удовлетворен / Оправдательный приговор / Победа
+  PARTIAL     // Иск удовлетворен частично / Смягчение наказания
+  LOSS        // В иске отказано / Проигрыш
+  SETTLEMENT  // Мировое соглашение / Прекращение дела
+  IN_PROGRESS // Дело в производстве
+  UNKNOWN     // Исход не определен парсером
+}
+
+enum VerificationStatus {
+  PENDING  // На проверке у модератора
+  APPROVED // Одобрено (профиль передан юристу)
+  REJECTED // Отклонено
+}
+
+enum LeadStatus {
+  NEW            // Новая заявка
+  SENT_TO_LAWYER // Передана владельцу профиля
+  SOLD_TO_PARTNER // Продана другому юристу (если профиль был не верифицирован)
+  IN_WORK        // В работе
+  CLOSED         // Успешно закрыта
+  SPAM           // Брак / Спам
+}
+
+// ==========================================
+// 2. ПОЛЬЗОВАТЕЛИ И АВТОРИЗАЦИЯ (ЛИЧНЫЙ КАБИНЕТ)
+// ==========================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  phone         String?   @unique
+  passwordHash  String?   // Если не используется внешний провайдер Supabase Auth
+  role          UserRole  @default(LAWYER)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Связь 1-к-1 с профилем адвоката после его подтверждения (Claim)
+  lawyerProfile Lawyer?
+  claimRequests ClaimRequest[]
+}
+
+// ==========================================
+// 3. ГЕОГРАФИЯ И СЕО-СПРАВОЧНИКИ (PROGRAMMATIC SEO)
+// ==========================================
+
+model City {
+  id                String   @id @default(uuid())
+  slug              String   @unique // Напр.: "ekaterinburg" -> URL: /ekaterinburg
+  name              String   // Именительный: "Екатеринбург"
+  nameGenitive      String   // Родительный: "Екатеринбурга" (для Title: Адвокаты Екатеринбурга)
+  namePrepositional String   // Предложный: "в Екатеринбурге" (для H1: Юристы в Екатеринбурге)
+  nameDative        String?  // Дательный: "Екатеринбургу"
+  regionName        String   // Субъект РФ: "Свердловская область"
+  regionCode        String?  // Код региона: "66" (помогает связывать с номером реестра 66/1234)
+  population        Int      @default(0)
+  isMajor           Boolean  @default(false) // Выводить ли на главной и в шапке
+  latitude          Float?
+  longitude         Float?
+
+  // Денормализованный счётчик для защиты от Thin Content (если 0 -> noindex)
+  activeLawyersCount Int     @default(0)
+
+  lawyers           Lawyer[]
+  lawFirms          LawFirm[]
+  courts            Court[]
+  questions         Question[]
+  leads             Lead[]
+
+  @@index([slug])
+  @@index([isMajor, population(sort: Desc)])
+}
+
+model Category {
+  id               String    @id @default(uuid())
+  slug             String    @unique // Напр.: "ugolovnoe-pravo" -> /[city]/ugolovnoe-pravo
+  name             String    // "Уголовное право"
+  lawyerTitlePlural String   // "Адвокаты по уголовным делам" (для автогенерации H1)
+  lawyerTitleSingle String   // "Адвокат по уголовным делам"
+  description      String?   @db.Text
+  sortOrder        Int       @default(0)
+
+  services         Service[]
+  specializations  LawyerSpecialization[]
+  courtCases       CourtCase[]
+  questions        Question[]
+  leads            Lead[]
+
+  @@index([slug])
+}
+
+model Service {
+  id              String   @id @default(uuid())
+  slug            String   // Напр.: "st-159-moshennichestvo" -> /[city]/[category]/[service]
+  categoryId      String
+  category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  name            String   // "Защита по ст. 159 УК РФ (Мошенничество)"
+  shortTag        String   // "Ст. 159 УК РФ (Мошенничество)" — для быстрых тегов над списком
+  lawArticleCode  String?  // Точный код статьи для автоматической привязки спарсенных дел: "159 УК РФ"
+  avgMarketPrice  Int?     // Средняя цена по рынку для аналитического блока SEO
+
+  specializations LawyerServicePrice[]
+  courtCases      CourtCase[]
+  leads           Lead[]
+
+  @@unique([categoryId, slug])
+  @@index([lawArticleCode])
+}
+
+// ==========================================
+// 4. РЕЕСТРОВОЕ ЯДРО (ПАРСИНГ МИНЮСТА И ОРГАНИЗАЦИЙ)
+// ==========================================
+
+model AdvocateChamber {
+  id          String   @id @default(uuid())
+  slug        String   @unique // URL: /chambers/ap-goroda-moskvy
+  name        String   // "Адвокатская палата города Москвы"
+  regionCode  String   @unique // Напр.: "77"
+  address     String?
+  website     String?
+
+  lawyers     Lawyer[]
+  lawFirms    LawFirm[]
+}
+
+model LawFirm {
+  id          String           @id @default(uuid())
+  slug        String           @unique // URL: /firms/[slug]
+  name        String           // "Московская коллегия адвокатов «Защита»"
+  form        LawFirmForm      @default(COLLEGIA)
+  inn         String?          @unique // Защита от дублей при парсинге
+  ogrn        String?
+  address     String?
+  phone       String?
+  website     String?
+
+  cityId      String
+  city        City             @relation(fields: [cityId], references: [id])
+  chamberId   String?
+  chamber     AdvocateChamber? @relation(fields: [chamberId], references: [id])
+
+  lawyers     Lawyer[]
+
+  @@index([cityId])
+  @@index([slug])
+}
+
+// ==========================================
+// 5. ПРОФИЛЬ АДВОКАТА И РЕЙТИНГ (ГЛАВНАЯ СУЩНОСТЬ)
+// ==========================================
+
+model Lawyer {
+  id                   String         @id @default(uuid())
+  slug                 String         @unique // URL: /lawyers/ivanov-ivan-ivanovich-77-1234
+  
+  // ФИО (раздельно для точного матчинга с судебными актами вида "Иванов И.И.")
+  fullName             String         // "Иванов Иван Иванович"
+  lastName             String         // "Иванов"
+  firstName            String         // "Иван"
+  middleName           String?        // "Иванович"
+  initialsSearch       String         // "Иванов И. И." — индекс для быстрого парсинга судов
+  
+  // Реестровые данные Минюста (уникальный ключ для парсера)
+  registryNumber       String?        @unique // Напр.: "77/12345"
+  registryStatus       RegistryStatus @default(ACTIVE)
+  statusUpdatedAt      DateTime?      // Когда последний раз сверяли с базой Минюста
+  identityCardNumber   String?        // Номер удостоверения
+  
+  // Статус владения профилем (Claim Profile)
+  isClaimed            Boolean        @default(false) // Забрал ли юрист профиль в ЛК
+  isVerifiedDocuments  Boolean        @default(false) // Проверен ли скан удостоверения
+  claimedAt            DateTime?
+  userId               String?        @unique
+  user                 User?          @relation(fields: [userId], references: [id])
+
+  // География и организация
+  cityId               String
+  city                 City           @relation(fields: [cityId], references: [id])
+  chamberId            String?
+  chamber              AdvocateChamber? @relation(fields: [chamberId], references: [id])
+  lawFirmId            String?
+  lawFirm              LawFirm?       @relation(fields: [lawFirmId], references: [id])
+
+  // Контент профиля (заполняется в ЛК)
+  photoUrl             String?
+  bio                  String?        @db.Text
+  education            String?        // ВУЗ, год окончания, ученая степень
+  experienceStartYear  Int?           // Год начала стажа (для автоподсчета лет опыта)
+  officeAddress        String?
+  worksOnline          Boolean        @default(false)
+  worksRegions         Boolean        @default(false) // Выезжает ли в другие города
+  minConsultationPrice Int?           // Цена консультации "от ... руб."
+  freeFirstCheck       Boolean        @default(false) // Бесплатная оценка перспектив дела
+
+  // Прямые контакты (показываются на сайте только если isClaimed == true и оплачен тариф)
+  publicPhone          String?
+  telegramUsername     String?
+  whatsappPhone        String?
+
+  // --- ДЕНОРМАЛИЗОВАННЫЙ РЕЙТИНГ И СЧЁТЧИКИ (ДЛЯ МГНОВЕННОЙ СОРТИРОВКИ В SSR) ---
+  totalRating          Float          @default(5.0) // Итоговый индекс от 0.0 до 10.0
+  practiceScore        Float          @default(2.5) // Баллы за спарсенные и выигранные дела (0–5)
+  statusAndExpScore    Float          @default(1.5) // Баллы за статус Минюста и стаж (0–3)
+  reputationScore      Float          @default(1.0) // Баллы за отзывы и ответы в Q&A (0–2)
+  isPromoted           Boolean        @default(false) // Платное закрепление в спецблоке
+
+  casesCount           Int            @default(0)   // Всего привязанных судебных дел
+  wonCasesCount        Int            @default(0)   // Выигранных дел
+  reviewsCount         Int            @default(0)   // Проверенных отзывов
+  answersCount         Int            @default(0)   // Ответов в разделе Вопрос-Ответ
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  // Связи
+  specializations      LawyerSpecialization[]
+  servicePrices        LawyerServicePrice[]
+  courtCases           CourtCase[]
+  reviews              Review[]
+  answers              Answer[]
+  leads                Lead[]
+  claimRequests        ClaimRequest[]
+
+  // Индексы для мгновенной выборки на страницах городов и поиска по ФИО
+  @@index([cityId, isPromoted(sort: Desc), totalRating(sort: Desc), casesCount(sort: Desc)])
+  @@index([lastName, firstName])
+  @@index([initialsSearch, cityId])
+  @@index([registryNumber])
+}
+
+// Связь Юрист <-> Отрасль права (с отдельным счётчиком дел именно в этой отрасли!)
+model LawyerSpecialization {
+  id                  String   @id @default(uuid())
+  lawyerId            String
+  lawyer              Lawyer   @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  categoryId          String
+  category            Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  casesInCategory     Int      @default(0) // Сколько дел у адвоката именно в этой категории
+  isPrimary           Boolean  @default(false)
+
+  @@unique([lawyerId, categoryId])
+  @@index([categoryId, casesInCategory(sort: Desc)])
+}
+
+// Прайс-лист юриста по узким услугам (заполняется в ЛК)
+model LawyerServicePrice {
+  id          String  @id @default(uuid())
+  lawyerId    String
+  lawyer      Lawyer  @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  
+  priceFrom   Int     // Стоимость от (в рублях)
+  priceComment String? // Напр.: "Под ключ в суде первой инстанции"
+
+  @@unique([lawyerId, serviceId])
+}
+
+// ==========================================
+// 6. СУДЫ И СУДЕБНЫЕ ДЕЛА (БАЗА ПРАКТИКИ)
+// ==========================================
+
+model Court {
+  id          String      @id @default(uuid())
+  slug        String      @unique // URL: /courts/arbitrazhnyj-sud-moskvy
+  courtCode   String?     @unique // Код суда в ГАС Правосудие (напр., "77RS0001") для парсера
+  name        String      // "Арбитражный суд города Москвы"
+  courtType   CourtType   @default(GENERAL)
+  address     String?
+  website     String?
+
+  cityId      String
+  city        City        @relation(fields: [cityId], references: [id])
+  cases       CourtCase[]
+
+  @@index([cityId])
+}
+
+model CourtCase {
+  id                 String      @id @default(uuid())
+  slug               String      @unique // URL: /cases/delo-a40-12345-2026-891
+  
+  // Защита от дублей при повторном парсинге СудАкт / КАД Арбитр / ГАС Правосудие
+  externalUid        String?     @unique // Внешний ID документа в источнике
+  caseNumber         String      // Официальный номер дела: "А40-12345/2026" или "2-1543/2026"
+  
+  title              String      // Понятный SEO-заголовок дела
+  summary            String?     @db.Text // Краткая суть спора и результат (генерируется ИИ или юристом)
+  rawTextExcerpt     String?     @db.Text // Фрагмент резолютивной части из парсера
+  lawArticles        String[]    // Массив статей, напр. ["ст. 159 УК РФ", "ст. 395 ГК РФ"]
+  
+  decisionDate       DateTime?   // Дата вынесения решения
+  outcome            CaseOutcome @default(UNKNOWN)
+  claimAmount        BigInt?     // Сумма спора в рублях (для арбитражных и имущественных дел)
+  sourceUrl          String?     // Ссылка на первоисточник в КАД / ГАС Правосудие
+  pdfDocumentUrl     String?     // Загруженный обезличенный PDF решения
+
+  // Управление из Личного кабинета
+  isVerifiedByLawyer Boolean     @default(false) // Юрист подтвердил и дополнил кейс
+  isHiddenByLawyer   Boolean     @default(false) // Юрист скрыл дело (ошибка однофамильца)
+
+  // Связи
+  lawyerId           String
+  lawyer             Lawyer      @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  courtId            String?
+  court              Court?      @relation(fields: [courtId], references: [id])
+  categoryId         String?
+  category           Category?   @relation(fields: [categoryId], references: [id])
+  serviceId          String?
+  service            Service?    @relation(fields: [serviceId], references: [id])
+
+  createdAt          DateTime    @default(now())
+
+  @@index([lawyerId, isHiddenByLawyer, decisionDate(sort: Desc)])
+  @@index([courtId])
+  @@index([categoryId])
+  @@index([caseNumber])
+}
+
+// ==========================================
+// 7. МЕХАНИКА "ЗАБРАТЬ ПРОФИЛЬ" (CLAIM PROFILE)
+// ==========================================
+
+model ClaimRequest {
+  id                String             @id @default(uuid())
+  lawyerId          String
+  lawyer            Lawyer             @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  userId            String?
+  user              User?              @relation(fields: [userId], references: [id])
+  
+  applicantName     String
+  workEmail         String
+  workPhone         String
+  idCardScanUrl     String             // Ссылка на фото удостоверения адвоката в закрытом бакете
+  comment           String?
+  
+  status            VerificationStatus @default(PENDING)
+  moderatorComment  String?
+  createdAt         DateTime           @default(now())
+  processedAt       DateTime?
+
+  @@index([status, createdAt(sort: Desc)])
+}
+
+// ==========================================
+// 8. UGC-МАГНИТЫ: ВОПРОС-ОТВЕТ, ОТЗЫВЫ И ЛИДЫ
+// ==========================================
+
+model Question {
+  id          String    @id @default(uuid())
+  slug        String    @unique // URL: /questions/[slug]
+  title       String    // Заголовок вопроса (H1 для НЧ-трафика)
+  body        String    @db.Text
+  authorName  String    @default("Анонимно")
+  authorPhone String?   // Скрытый телефон автора вопроса (можно конвертировать в платный лид!)
+  
+  cityId      String?
+  city        City?     @relation(fields: [cityId], references: [id])
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  
+  viewsCount  Int       @default(0)
+  isPublished Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  answers     Answer[]
+
+  @@index([categoryId, createdAt(sort: Desc)])
+  @@index([cityId])
+}
+
+model Answer {
+  id          String   @id @default(uuid())
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  lawyerId    String
+  lawyer      Lawyer   @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  
+  body        String   @db.Text
+  isBestAnswer Boolean @default(false) // Выбран ли ответ лучшим (дает бонус к рейтингу)
+  likesCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([questionId])
+  @@index([lawyerId])
+}
+
+model Review {
+  id                 String             @id @default(uuid())
+  lawyerId           String
+  lawyer             Lawyer             @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
+  
+  authorName         String
+  authorPhone        String             // Для SMS-подтверждения, не публикуется
+  rating             Int                // Оценка от 1 до 5
+  pros               String?            @db.Text
+  cons               String?            @db.Text
+  comment            String             @db.Text
+  
+  // Доказательство реальности отзыва (E-E-A-T фактор)
+  verifiedCaseNumber String?            // Номер судебного дела клиента (проверяется модератором)
+  isVerifiedClient   Boolean            @default(false) // Значок "Проверенный доверитель по делу №..."
+  status             VerificationStatus @default(PENDING)
+  
+  createdAt          DateTime           @default(now())
+
+  @@index([lawyerId, status, createdAt(sort: Desc)])
+}
+
+model Lead {
+  id            String     @id @default(uuid())
+  clientName    String
+  clientPhone   String
+  problemText   String     @db.Text
+  sourceUrl     String?    // С какой именно SEO-страницы пришла заявка
+  
+  // Заявка может быть адресована конкретному адвокату ИЛИ быть общей по городу/категории
+  lawyerId      String?
+  lawyer        Lawyer?    @relation(fields: [lawyerId], references: [id])
+  cityId        String?
+  city          City?      @relation(fields: [cityId], references: [id])
+  categoryId    String?
+  category      Category?  @relation(fields: [categoryId], references: [id])
+  serviceId     String?
+  service       Service?   @relation(fields: [serviceId], references: [id])
+
+  status        LeadStatus @default(NEW)
+  createdAt     DateTime   @default(now())
+
+  @@index([lawyerId, status])
+  @@index([cityId, categoryId, status])
+}
+Почему эта схема сэкономит вам месяцы работы в будущем
+Автоматическое SEO-склонение без копирайтеров (City + Category):
+Поля nameGenitive (Екатеринбурга), namePrepositional (в Екатеринбурге) и lawyerTitlePlural (Адвокаты по уголовным делам) позволяют на лету собирать безупречные заголовки для тысяч страниц:
+
+H1: {{category.lawyerTitlePlural}} {{city.namePrepositional}} → «Адвокаты по уголовным делам в Екатеринбурге».
+
+Title: Рейтинг адвокатов {{city.nameGenitive}} по направлению {{category.name}} — {{count}} проверенных юристов.
+
+Мгновенная привязка спарсенных дел к юристам (initialsSearch + regionCode):
+В судебных актах ГАС «Правосудие» редко пишут полное имя адвоката — обычно там указано «защитник Иванов И.И.». Поле initialsSearch в связке с кодом региона (regionCode) позволяет вашему скрипту-парсеру за доли секунды находить совпадения в базе, а если у адвоката есть однофамилец, реальный юрист в личном кабинете может нажать одну кнопку и скрыть чужое дело (isHiddenByLawyer: true).
+
+Монетизация даже спарсенных анкет (Lead):
+Обратите внимание на модель Lead: когда клиент оставляет заявку в профиле адвоката, который ещё не зарегистрировался на сайте (isClaimed: false), заявка сохраняется с привязкой к cityId и categoryId и получает статус NEW. Вы видите её в админке и можете либо продать партнёрским юристам из этого же города, либо позвонить самому адвокату и сказать: «У нас на портале для вас лежит заявка от клиента по уголовному делу, подтвердите свой профиль бесплатно, чтобы забрать контакт». Конверсия в регистрацию при таком заходе превышает 70%.
+
+Как развернуть эту схему в Cursor за 2 минуты
+Выполните в терминале Cursor три команды:
+
+Bash
+npm install prisma --save-dev
+npm install @prisma/client
+npx prisma generate
+Когда подключите базу PostgreSQL (например, бесплатный проект в Supabase) и пропишете DATABASE_URL в .env, выполните npx prisma db push — все 14 таблиц и индексы создадутся автоматически.
+
+
+Чтобы Cursor с первого раза сгенерировал строгий, дорогой интерфейс уровня * «Коммерсантъ» / Pravo.ru / Chambers & Partners* (без единого намёка на нейросетевой шаблон), действуйте в два шага: сначала зафиксируйте кириллические шрифты и палитру в базовом лейауте, а затем отправьте в Cursor Composer (Ctrl+I / Cmd+I) детальный мастер-промпт для сборки страницы /ui-kit.
+
+Шаг 1. Подключение шрифтов и палитры (База для типографики)
+Типографика делает 80% впечатления в редакционном (Editorial) дизайне. Обычный системный шрифт превратит даже хорошую вёрстку в скучную таблицу. Мы подключим три шрифта с поддержкой кириллицы из next/font/google:
+
+PT Serif — классическая строгая антиква для заголовков H1–H3, фамилий адвокатов и крупных цифр рейтинга.
+
+Golos Text — современный российский гротеск (используется на госресурсах и в деловых медиа) для идеальной читаемости таблиц и мелкого текста.
+
+JetBrains Mono — технический моноширинный шрифт специально для номеров реестра Минюста (№ 77/12458) и номеров судебных дел (А40-18920/2025).
+
+Откройте Cursor Composer и отправьте этот короткий подготовительный промпт:
+
+Markdown
+Настрой в `src/app/layout.tsx` и `src/app/globals.css` шрифтовую систему и цветовую палитру в стиле Swiss Legal / Editorial:
+
+1. В `src/app/layout.tsx` импортируй из `next/font/google` три шрифта с сабсетом `["cyrillic", "latin"]`:
+   - `PT_Serif` (weight: ["400", "700"], variable: "--font-serif")
+   - `Golos_Text` (weight: ["400", "500", "600", "700"], variable: "--font-sans")
+   - `JetBrains_Mono` (weight: ["400", "500"], variable: "--font-mono")
+   Передай переменные в `<html>` и установи по умолчанию `font-sans bg-[#F9F8F6] text-[#14171A] antialiased`.
+
+2. В `tailwind.config.ts` (или через `@theme` в `globals.css` для Tailwind v4) привяжи:
+   - `font-serif`: `var(--font-serif)`
+   - `font-sans`: `var(--font-sans)`
+   - `font-mono`: `var(--font-mono)`
+   И добавь кастомные цвета:
+   - `paper`: `#F9F8F6` (основной теплый бумажный фон)
+   - `surface`: `#FFFFFF` (фон карточек и таблиц)
+   - `ink`: `#14171A` (основной графитовый текст)
+   - `muted-ink`: `#5A6065` (вторичный текст и подписи)
+   - `rule`: `#E2E0D8` (цвет тонких разделительных линий сетки 1px)
+   - `navy`: `#1B365D` (основной акцент — строгий темно-синий)
+   - `bronze`: `#8C6D46` (статусный акцент — рейтинг, верификация, стаж)
+   - `registry-green`: `#1E5631` (статус "Действующий" в реестре Минюста)
+Шаг 2. Мастер-промпт для генерации эталонной страницы /ui-kit
+После настройки шрифтов откройте Cursor Composer (Ctrl+I / Cmd+I), прикрепите в контекст @.cursorrules и @prisma/schema.prisma, и вставьте следующий промпт целиком:
+
+Markdown
+Создай эталонную страницу дизайн-системы и доменных компонентов портала по адресу `src/app/(public)/ui-kit/page.tsx`, а сами переиспользуемые компоненты разложи в `src/components/domain/`.
+
+### ЖЕСТКИЕ ПРАВИЛА ВЕРСТКИ (ANTI-AI DESIGN):
+1. НИКАКИХ скруглений (`rounded-none` везде, максимум `rounded-[2px]` для мелких бейджей), НИКАКИХ теней (`shadow-none`), НИКАКИХ градиентов.
+2. Вся структура строится на открытой модульной сетке с видимыми тонкими линиями `border-[#E2E0D8]` (`1px solid`), как в печатной деловой прессе (Financial Times, Ведомости, Pravo.ru).
+3. Все числа (рейтинг, количество дел, номера реестров, даты, цены) верстай строго с классом `tabular-nums` или `font-mono`.
+4. Названия разделов и верхние подписи (надзаголовки) оформляй в стиле газетных рубрик: `text-[11px] uppercase tracking-[0.08em] font-semibold text-[#5A6065]`.
+
+---
+
+### СПИСОК КОМПОНЕНТОВ, КОТОРЫЕ НУЖНО СОЗДАТЬ В `src/components/domain/` И ПРОДЕМОНСТРИРОВАТЬ НА `/ui-kit`:
+
+#### 1. `CityCategoryHeader.tsx` — Аналитическая шапка SEO-страницы (например, «Адвокаты по уголовным делам в Екатеринбурге»)
+- Хлебные крошки в одну строчку моноширинным или мелким шрифтом: `Главная / Свердловская область / Екатеринбург / Уголовное право`.
+- Крупный заголовок `H1` шрифтом `font-serif text-3xl md:text-4xl font-normal text-[#14171A] tracking-tight`.
+- Справа или под заголовком — строгая аналитическая сводка из 4 ячеек, разделенных вертикальными линиями `border-[#E2E0D8]`:
+  1. `В реестре города`: **142 адвоката**
+  2. `Проанализировано актов`: **3 840 судебных дел**
+  3. `Средний индекс практики`: **7.4 / 10**
+  4. `Консультация от`: **2 500 ₽**
+- Нижний ряд — «Быстрые теги по статьям и проблемам» (горизонтальный список кнопок с рамкой `border border-[#E2E0D8] bg-white hover:border-[#1B365D] px-3 py-1.5 text-xs`): `Ст. 159 УК РФ (Мошенничество) [48]`, `Ст. 228 УК РФ [31]`, `Экономические преступления [19]`, `УДО и обжалование приговора [64]`.
+
+#### 2. `LawyerCard.tsx` — Карточка адвоката в каталоге (Сделай 2 варианта состояния на странице UI-Kit!)
+Карточка должна быть горизонтальной на десктопе, расчерченной тонкими линиями `border border-[#E2E0D8] bg-white` на 3 логических колонки:
+
+**Состояние А: Верифицированный профиль (`isClaimed: true`)**
+- **Левая колонка (Статус и идентификация, 220px):**
+  - Строгий прямоугольный портрет `aspect-[4/5]` с тонкой рамкой.
+  - Под фото — официальный бейдж реестра: зеленый индикатор-точка `#1E5631`, текст `Минюст РФ: № 66/2841` (`font-mono text-xs`), статус `ДЕЙСТВУЮЩИЙ`.
+  - Подпись: `Стаж с 2011 г. (15 лет) • Коллегия адвокатов «УралПраво»`.
+- **Центральная колонка (Экспертиза и доказанная судебная практика):**
+  - ФИО крупно `font-serif text-xl text-[#14171A] hover:text-[#1B365D]` + золотисто-бронзовый бейдж `Личность и диплом проверены`.
+  - Специализация и теги судов, где чаще всего выступает: `Свердловский областной суд (42 дела)`, `Арбитражный суд УО (18 дел)`.
+  - Блок «Последние верифицированные дела в базах судов» (2 строки с фоном `#F9F8F6` и левой рамкой `border-l-2 border-[#1B365D] p-2.5`):
+    - Например: `Дело № 22-4102/2025 • Ст. 159 ч. 4 УК РФ • Итог: Переквалификация и прекращение преследования`.
+- **Правая колонка (Рейтинг, цены и Конверсия, 260px, отделена `border-l border-[#E2E0D8] bg-[#FAF9F5]`):**
+  - Крупный индекс рейтинга: `9.2` (`font-serif text-3xl text-[#14171A]`) из `10` и мини-расшифровка: `Практика: 4.8/5 • Статус: 2.8/3 • Отзывы: 1.6/2`.
+  - Прайс-ориентир: `Консультация: от 3 000 ₽`, `Первичная оценка дела: Бесплатно`.
+  - Строгая темно-синяя кнопка во всю ширину `bg-[#1B365D] text-white py-2.5 text-sm font-medium`: `Записаться / Обсудить дело` и вторичная кнопка `Показать телефон`.
+
+**Состояние Б: Спарсенный профиль из открытых баз (`isClaimed: false`)**
+- Вместо фото — строгая типографская монограмма инициалов (`АС`) на сдержанном серо-бежевом фоне `#EFECE6` с подписью `Фото не загружено`.
+- Бейдж реестра Минюста `№ 66/9104 • Статус: Действующий` присутствует (так как спарсен официально).
+- Показана статистика найденных судебных актов (`Найдено в ГАС «Правосудие»: 27 дел`) и базовый расчетный рейтинг `6.8 / 10 (Расчет по открытым данным судов)`.
+- Вместо прямых контактов юриста в правой колонке:
+  - Кнопка для клиента: `Оставить заявку на подбор юриста` (лид идет порталу).
+  - Внизу карточки — официальная плашка `bg-[#F4EFE6] border-t border-[#E2E0D8] px-4 py-2 flex justify-between items-center`:
+    Текст: `Профиль сформирован автоматически по данным Минюста РФ. Вы — Смирнов Алексей Сергеевич?` и ссылка-кнопка `Подтвердить профиль и добавить цены →`.
+
+#### 3. `CourtCasesTable.tsx` — Реестровая таблица судебных дел (для профиля юриста и страниц судов)
+- Оформлена как архивная ведомость с четкими заголовками колонок: `№ ДЕЛА / СУД`, `КАТЕГОРИЯ И СТАТЬЯ`, `СУТЬ И РЕЗУЛЬТАТ СПОРА`, `ИСХОД`, `ПЕРВОИСТОЧНИК`.
+- Номера дел (`А60-34912/2025`, `1-142/2025`) — строго `font-mono text-xs text-[#1B365D] underline`.
+- Бейджи исхода дела строгие, без кричащих цветов:
+  - Победа / Иск удовлетворен: рамка `border-[#1E5631]/30 bg-[#1E5631]/5 text-[#1E5631]`
+  - Частично удовлетворен: рамка `border-[#8C6D46]/30 bg-[#8C6D46]/10 text-[#8C6D46]`
+
+#### 4. `RatingBreakdownCard.tsx` — Паспорт прозрачного расчета рейтинга
+- Визуальный блок, объясняющий пользователям и поисковикам (E-E-A-T), почему рейтингу можно верить:
+  - Горизонтальные прогресс-бары тонкой линией (высота `4px`) для 3 компонентов формулы:
+    1. **Индекс судебной практики (до 5.0 баллов)** — количество дел в ГАС «Правосудие» и КАД «Арбитр», сложность статей и доля успешных исходов.
+    2. **Квалификация и статус Минюста (до 3.0 баллов)** — действующий статус адвоката, отсутствие приостановок, юридический стаж.
+    3. **Репутация и проверка доверителей (до 2.0 баллов)** — отзывы клиентов с подтвержденным номером судебного дела и ответы в разделе консультаций.
+
+#### 5. `LegalCalculatorWidget.tsx` — Пример SEO-магнита «Калькулятор госпошлины в суд общей юрисдикции / Арбитраж (2026)»
+- Двухколоночный виджет в строгой рамке `border-2 border-[#14171A] bg-white`:
+  - Слева: выбор типа суда (переключатель с прямыми углами), ввод цены иска в рублях (`font-mono text-lg`), чекбокс льготной категории.
+  - Справа: расчет точной суммы госпошлины по ст. 333.19 / 333.21 НК РФ + встроенный нативный блок конверсии: `При цене иска 1 500 000 ₽ госпошлина составит 30 000 ₽. Пошлину можно взыскать с ответчика через суд — выберите адвоката по взысканию долгов (ТОП-3 в вашем городе)`.
+
+---
+
+### СТРУКТУРА САМОЙ СТРАНИЦЫ `/ui-kit`:
+Сделай верхнюю навигационную панель по секциям UI-Kit (`01. Типографика и палитра`, `02. Шапка гео-категории`, `03. Карточки адвокатов (Verified vs Parsed)`, `04. Таблица судебных дел`, `05. Методика рейтинга`, `06. SEO-калькулятор`), чтобы я мог открыть `http://localhost:3000/ui-kit` и проверить каждый блок на реальных русскоязычных юридических данных.
+Шаг 3. Чек-лист проверки после генерации (http://localhost:3000/ui-kit)
+Когда Cursor завершит генерацию, запустите npm run dev и откройте http://localhost:3000/ui-kit. Проверьте три визуальных маркера, которые отличают профессиональный юридический портал от шаблона:
+
+Контраст карточек Verified vs. Parsed: Убедитесь, что спарсенная карточка без фотографии выглядит достойно и официально (как выписка из государственного реестра со строгой монограммой и номером удостоверения), а не как «пустая сломанная анкета». Именно тогда адвокат захочет забрать её себе, а не требовать удаления.
+
+Читаемость цифр и номеров дел: Номера дел (А40-...) и номера в реестре Минюста (77/...) должны выделяться техническим моноширинным шрифтом JetBrains Mono — это подсознательно считывается пользователями как документ из государственной базы данных.
+
+Никаких «пустых воздуха» вокруг таблиц: В юридических справочниках ценится плотность информации (Information Density). На одном экране десктопа пользователь должен сразу видеть шапку со статистикой города, быстрые теги статей кодекса и первую карточку адвоката с его реальными судебными делами.
+
+Лайфхак при работе в Cursor: Когда вам полностью понравится вид компонентов на странице /ui-kit, зафиксируйте их в Git (git commit -m "feat: approved Swiss Legal UI kit"). На всех следующих этапах (создание страниц городов, профилей и судов) пишите в промптах Cursor одну фразу: «Используй исключительно готовые компоненты из @src/components/domain/, не создавай новую вёрстку». Это гарантирует 100% единый дизайн на всех тысячах SEO-страниц.

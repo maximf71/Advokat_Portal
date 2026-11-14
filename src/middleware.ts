@@ -1,0 +1,11 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+/** Minimal middleware so Next always emits middleware-manifest.json on tiny VPS builds. */
+export function middleware(_request: NextRequest) {
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*", "/admin/:path*", "/login"],
+};
